@@ -68,10 +68,6 @@ frame_count % 17 == 5
 
 最小値は `5` です。2フレームだけを直接生成するのではなく、5フレーム生成して必要なフレームを `MiniMax H3 Select Frame` で取り出します。
 
-### リサイズ
-
-入力画像はノード内部で指定サイズにストレッチされます。`resize mode` のUIはありません。
-
 ### Temporal RoPE Patch
 
 `MiniMax H3 Temporal RoPE Patch` は、MODELを受け取ってMODELを返します。UNET Loaderの後、KSamplerへ入る前に接続してください。
@@ -174,10 +170,6 @@ Examples:
 ```
 
 The minimum is `5`. To get fewer output images, generate 5 frames and extract the needed frame with `MiniMax H3 Select Frame`.
-
-### Resize
-
-Input images are stretched internally to the requested size. There is no `resize mode` UI.
 
 ### Temporal RoPE Patch
 
