@@ -14,6 +14,12 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 
 入力画像を0番フレームに固定し、短いフレーム列を生成して、指定した1枚だけを取り出します。静止画編集に近い使い方です。
 
+Prompt:
+
+```text
+The scenery doesn't move at all, and the camera is fixed. It switches from day to night.
+```
+
 | 入力画像 | 出力例 |
 | --- | --- |
 | <img src="sample/single.png" alt="single input" width="220"> | <img src="sample/minimax_h3_single_frame.png" alt="single frame output" width="220"> |
@@ -21,6 +27,14 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 #### 始点と終点から中間フレームを作る
 
 `start_frame` と `end_frame` を固定し、その間をMiniMax H3で推論して、中間の1枚を取り出します。ポーズ参照からキャラデザインへ寄せる用途などに使えます。
+
+Prompt:
+
+```text
+Transform the first frame pose reference into the character from the final frame in two stages.
+First, make the final-frame character take the first-frame pose and expression.
+Then gradually refine the posed character into the final character design.
+```
 
 | 始点 | 終点 | 中間フレーム例 |
 | --- | --- | --- |
@@ -107,6 +121,12 @@ These nodes are intended for image-editing-like workflows and start/end frame in
 
 The input image is anchored at frame 0, MiniMax H3 generates a short frame sequence, and one selected frame is extracted. This is intended for still-image-like editing.
 
+Prompt:
+
+```text
+The scenery doesn't move at all, and the camera is fixed. It switches from day to night.
+```
+
 | Input image | Example output |
 | --- | --- |
 | <img src="sample/single.png" alt="single input" width="220"> | <img src="sample/minimax_h3_single_frame.png" alt="single frame output" width="220"> |
@@ -114,6 +134,14 @@ The input image is anchored at frame 0, MiniMax H3 generates a short frame seque
 #### Create a middle frame from start and end images
 
 The `start_frame` and `end_frame` are anchored, MiniMax H3 infers the frames between them, and one middle frame is extracted. This can be used for workflows such as converting a pose reference toward a character design.
+
+Prompt:
+
+```text
+Transform the first frame pose reference into the character from the final frame in two stages.
+First, make the final-frame character take the first-frame pose and expression.
+Then gradually refine the posed character into the final character design.
+```
 
 | Start | End | Example middle frame |
 | --- | --- | --- |
