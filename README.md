@@ -51,6 +51,22 @@ frame_count % 17 == 5
 
 これは実験機能です。学習時の時間配置から外れるため、にじみ、反復模様、質感劣化、構図崩れが出る場合もあります。効果がない、または悪化する場合は `strength = 0.0` に戻してください。
 
+RoPE固定が向いているのは、入力画像の構図、ポーズ、輪郭をなるべく動かさず、1枚絵編集のように使いたい場合です。たとえば、目だけ閉じる、表情だけ変える、服や背景を少し変える、といった小さい編集では効果が出ることがあります。
+
+RoPE固定を弱めるか無効にした方がよいのは、Start/End補間、ポーズ参照からキャラデザインへの変換、22フレーム以上の中間フレーム抽出など、時間方向の変化そのものを使いたい場合です。RoPE固定が強すぎると、補間が片方のフレームに寄ったり、変化が固まりすぎたりすることがあります。
+
+`strength` の目安:
+
+```text
+0.0  = 通常のMiniMax H3
+0.25 = 少しだけ動きを抑える
+0.5  = 中間
+0.75 = かなり固定
+1.0  = 指定フレームへ時間RoPEを固定
+```
+
+Start/End補間では `0.0` から `0.25`、静止画編集では `1.0` から試すのがおすすめです。
+
 ### サンプルワークフロー
 
 - `example_workflows/minimax_h3_single_frame_edit_basic.json`
@@ -109,6 +125,22 @@ Input images are stretched internally to the requested size. There is no `resize
 The default `frame_index = 0` and `strength = 1.0` is intended for still-image-like output. It may reduce motion, color shifts, and temporal drift. If the effect is too strong or causes artifacts, lower `strength` into the `0.25` to `0.75` range.
 
 This is experimental. Because it changes the temporal position layout the model was trained with, it may also introduce smearing, repeated patterns, texture degradation, or composition errors. If it does not help, set `strength = 0.0`.
+
+Temporal RoPE freezing is most useful when you want image-editing-like behavior: keep the input composition, pose, and silhouette as still as possible while making a small change. It may help with edits such as closing only the eyes, changing only the expression, or making a small clothing/background change.
+
+Use a weaker value or disable it when you want real temporal change, such as Start/End interpolation, converting a pose reference into a character design over time, or selecting a middle frame from 22 or more generated frames. If the freeze is too strong, interpolation may collapse toward one endpoint or become too rigid.
+
+Suggested `strength` values:
+
+```text
+0.0  = normal MiniMax H3 behavior
+0.25 = slight motion reduction
+0.5  = balanced
+0.75 = strong freeze
+1.0  = temporal RoPE fixed to the selected frame
+```
+
+For Start/End interpolation, try `0.0` to `0.25`. For still-image editing, start with `1.0`.
 
 ### Example Workflows
 
