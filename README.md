@@ -16,7 +16,7 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 
 | 入力画像 | 出力例 |
 | --- | --- |
-| ![single input](sample/single.png) | ![single frame output](sample/minimax_h3_single_frame.png) |
+| <img src="sample/single.png" alt="single input" width="220"> | <img src="sample/minimax_h3_single_frame.png" alt="single frame output" width="220"> |
 
 #### 始点と終点から中間フレームを作る
 
@@ -24,7 +24,7 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 
 | 始点 | 終点 | 中間フレーム例 |
 | --- | --- | --- |
-| ![first frame](sample/first.png) | ![end frame](sample/end.png) | ![middle frame output](sample/minimax_h3_middle_frame.png) |
+| <img src="sample/first.png" alt="first frame" width="220"> | <img src="sample/end.png" alt="end frame" width="220"> | <img src="sample/minimax_h3_middle_frame.png" alt="middle frame output" width="220"> |
 
 ### ノード
 
@@ -109,7 +109,7 @@ The input image is anchored at frame 0, MiniMax H3 generates a short frame seque
 
 | Input image | Example output |
 | --- | --- |
-| ![single input](sample/single.png) | ![single frame output](sample/minimax_h3_single_frame.png) |
+| <img src="sample/single.png" alt="single input" width="220"> | <img src="sample/minimax_h3_single_frame.png" alt="single frame output" width="220"> |
 
 #### Create a middle frame from start and end images
 
@@ -117,7 +117,7 @@ The `start_frame` and `end_frame` are anchored, MiniMax H3 infers the frames bet
 
 | Start | End | Example middle frame |
 | --- | --- | --- |
-| ![first frame](sample/first.png) | ![end frame](sample/end.png) | ![middle frame output](sample/minimax_h3_middle_frame.png) |
+| <img src="sample/first.png" alt="first frame" width="220"> | <img src="sample/end.png" alt="end frame" width="220"> | <img src="sample/minimax_h3_middle_frame.png" alt="middle frame output" width="220"> |
 
 ### Nodes
 
