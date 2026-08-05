@@ -1,7 +1,9 @@
 import torch
 
+import comfy.ldm.minimax.model as minimax_model
 import comfy.model_management
 import comfy.nested_tensor
+import comfy.patcher_extension
 import comfy.utils
 import node_helpers
 import nodes
@@ -43,6 +45,45 @@ def _empty_av_latent(width, height, frame_count, batch_size=1):
     return {"samples": comfy.nested_tensor.NestedTensor((video, audio))}, frame_count
 
 
+def _freeze_target_video_rope(layout, frame_index, strength):
+    video_seg = next((a, b) for a, b, kind in layout.segments if kind == "video")
+    a, b = video_seg
+    latent_t = layout.signature[1]
+    frame_rows = (b - a) // latent_t
+    frame_index = max(0, min(latent_t - 1, int(frame_index)))
+    strength = max(0.0, min(1.0, float(strength)))
+    ref_t = layout.position_ids[a + frame_index * frame_rows, 0]
+    position_ids = layout.position_ids.clone()
+    position_ids[a:b, 0].lerp_(ref_t, strength)
+    layout.position_ids = position_ids
+
+
+def _temporal_rope_wrapper(frame_index, strength):
+    def wrapper(executor, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        try:
+            video_x, audio_x = x[0], x[1]
+            latent_t, lat_h, lat_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
+            lat_h = (lat_h + 1) // 2 * 2
+            lat_w = (lat_w + 1) // 2 * 2
+            payload = dict(minimax_payload or {})
+            payload["layout"] = minimax_model.PackedLayout(
+                context.shape[1],
+                latent_t,
+                lat_h,
+                lat_w,
+                audio_x.shape[-1],
+                keyframes=payload.get("keyframes"),
+                refs=payload.get("refs"),
+                frame_count=payload.get("frame_count"),
+            )
+            _freeze_target_video_rope(payload["layout"], frame_index, strength)
+            minimax_payload = payload
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            pass
+        return executor(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
+    return wrapper
+
+
 def _snap_canvas(width, height):
     return (
         max(CANVAS_MULTIPLE, round(width / CANVAS_MULTIPLE) * CANVAS_MULTIPLE),
@@ -68,6 +109,31 @@ class EmptyMiniMaxH3SingleFrameLatent:
         width, height = _snap_canvas(width, height)
         latent, _ = _empty_av_latent(width, height, COMPAT_FRAME_COUNT)
         return (latent,)
+
+
+class MiniMaxH3TemporalRoPEPatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600}),
+                "strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "patch"
+    CATEGORY = "model/patches/minimax"
+
+    def patch(self, model, frame_index, strength):
+        m = model.clone()
+        m.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+            "minimax_h3_temporal_rope",
+            _temporal_rope_wrapper(frame_index, strength),
+        )
+        return (m,)
 
 
 class MiniMaxH3SingleFrameEdit:
@@ -203,6 +269,7 @@ class MiniMaxH3SelectFrame:
 
 NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
+    "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
     "MiniMaxH3SelectFrame": MiniMaxH3SelectFrame,
@@ -210,6 +277,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": "Empty MiniMax H3 Single Frame Latent",
+    "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",
     "MiniMaxH3SelectFrame": "MiniMax H3 Select Frame",
