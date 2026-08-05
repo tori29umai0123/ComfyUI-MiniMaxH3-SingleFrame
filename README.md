@@ -8,6 +8,24 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 
 通常の動画生成ノードとしてではなく、画像編集や始点/終点フレーム補間を静止画ワークフローに近い形で扱うことを目的にしています。
 
+### できること
+
+#### 1枚の画像をMiniMax H3で編集する
+
+入力画像を0番フレームに固定し、短いフレーム列を生成して、指定した1枚だけを取り出します。静止画編集に近い使い方です。
+
+| 入力画像 | 出力例 |
+| --- | --- |
+| ![single input](sample/single.png) | ![single frame output](sample/minimax_h3_single_frame.png) |
+
+#### 始点と終点から中間フレームを作る
+
+`start_frame` と `end_frame` を固定し、その間をMiniMax H3で推論して、中間の1枚を取り出します。ポーズ参照からキャラデザインへ寄せる用途などに使えます。
+
+| 始点 | 終点 | 中間フレーム例 |
+| --- | --- | --- |
+| ![first frame](sample/first.png) | ![end frame](sample/end.png) | ![middle frame output](sample/minimax_h3_middle_frame.png) |
+
 ### ノード
 
 - `MiniMax H3 Single Frame Edit`: 入力画像とプロンプトからMiniMax H3用のconditioningとAV latentを作ります。`frame_count` のデフォルトは `5` です。`keyframe` は入力画像を0番フレームに固定し、`reference` は `<Picture 1>` の参照画像として使います。
@@ -82,6 +100,24 @@ ComfyUIでワークフローを開き、UNET、CLIP、VAE、入力画像のフ�
 Experimental ComfyUI custom nodes for MiniMax H3 that generate a short compatible frame sequence and extract a single frame from it.
 
 These nodes are intended for image-editing-like workflows and start/end frame interpolation, not as a general video generation wrapper.
+
+### What This Can Do
+
+#### Edit one image with MiniMax H3
+
+The input image is anchored at frame 0, MiniMax H3 generates a short frame sequence, and one selected frame is extracted. This is intended for still-image-like editing.
+
+| Input image | Example output |
+| --- | --- |
+| ![single input](sample/single.png) | ![single frame output](sample/minimax_h3_single_frame.png) |
+
+#### Create a middle frame from start and end images
+
+The `start_frame` and `end_frame` are anchored, MiniMax H3 infers the frames between them, and one middle frame is extracted. This can be used for workflows such as converting a pose reference toward a character design.
+
+| Start | End | Example middle frame |
+| --- | --- | --- |
+| ![first frame](sample/first.png) | ![end frame](sample/end.png) | ![middle frame output](sample/minimax_h3_middle_frame.png) |
 
 ### Nodes
 
