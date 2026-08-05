@@ -45,9 +45,9 @@ frame_count % 17 == 5
 `MiniMax H3 Temporal RoPE Patch` は、MODELを受け取ってMODELを返します。UNET Loaderの後、KSamplerへ入る前に接続してください。
 
 - `frame_index`: 時間RoPEの基準にするlatentフレームです。デフォルトは `0` です。
-- `strength`: 通常の時間RoPEから固定RoPEへ寄せる強さです。デフォルトは `0.0` で、RoPE導入前と同じ挙動です。`1.0` で完全固定、`0.5` で半分だけ寄せます。
+- `strength`: 通常の時間RoPEから固定RoPEへ寄せる強さです。デフォルトは `1.0` で、指定フレームへ完全固定します。`0.5` で半分だけ寄せ、`0.0` でRoPE導入前と同じ挙動です。
 
-静止画寄りにしたい場合は、まず `frame_index = 0`, `strength = 1.0` を試してください。動き、色変化、時間方向のドリフトが減る可能性があります。効きが強すぎて崩れる場合は `strength = 0.25` から `0.75` の範囲で下げてください。
+デフォルトの `frame_index = 0`, `strength = 1.0` は静止画寄りの出力を狙う設定です。動き、色変化、時間方向のドリフトが減る可能性があります。効きが強すぎて崩れる場合は `strength = 0.25` から `0.75` の範囲で下げてください。
 
 これは実験機能です。学習時の時間配置から外れるため、にじみ、反復模様、質感劣化、構図崩れが出る場合もあります。効果がない、または悪化する場合は `strength = 0.0` に戻してください。
 
@@ -104,9 +104,9 @@ Input images are stretched internally to the requested size. There is no `resize
 `MiniMax H3 Temporal RoPE Patch` takes a MODEL and returns a MODEL. Connect it after the UNET Loader and before KSampler.
 
 - `frame_index`: The latent frame used as the temporal RoPE reference. The default is `0`.
-- `strength`: How strongly the normal temporal RoPE is pulled toward the fixed frame. The default is `0.0`, which matches the behavior before this RoPE patch. `1.0` fully freezes it, while `0.5` pulls it halfway toward the selected frame.
+- `strength`: How strongly the normal temporal RoPE is pulled toward the fixed frame. The default is `1.0`, which fully freezes it to the selected frame. `0.5` pulls it halfway toward the selected frame, while `0.0` matches the behavior before this RoPE patch.
 
-For still-image-like output, start with `frame_index = 0` and `strength = 1.0`. It may reduce motion, color shifts, and temporal drift. If the effect is too strong or causes artifacts, lower `strength` into the `0.25` to `0.75` range.
+The default `frame_index = 0` and `strength = 1.0` is intended for still-image-like output. It may reduce motion, color shifts, and temporal drift. If the effect is too strong or causes artifacts, lower `strength` into the `0.25` to `0.75` range.
 
 This is experimental. Because it changes the temporal position layout the model was trained with, it may also introduce smearing, repeated patterns, texture degradation, or composition errors. If it does not help, set `strength = 0.0`.
 

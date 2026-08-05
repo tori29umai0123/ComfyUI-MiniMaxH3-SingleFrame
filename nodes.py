@@ -118,7 +118,7 @@ class MiniMaxH3TemporalRoPEPatch:
             "required": {
                 "model": ("MODEL",),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600}),
-                "strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
