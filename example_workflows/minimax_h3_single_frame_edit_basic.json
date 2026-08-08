@@ -23,7 +23,7 @@
       "title": "MiniMax H3 Single Frame Edit sample",
       "properties": {},
       "widgets_values": [
-        "Replace the UNET, CLIP, VAE, and Load Image filenames with your local MiniMax H3 files. The custom node uses H3's minimum compatible 5-frame grid internally, then MiniMax H3 Select Frame keeps one decoded frame for image output. Set image_mode to reference when you want the input image used as <Picture 1> reference instead of a frame-0 keyframe anchor."
+        "Replace the UNET, CLIP, VAE, and Load Image filenames with your local MiniMax H3 files. The custom node can generate a single-frame latent directly with frame_count=1. Set image_mode to reference when you want the input image used as <Picture 1> reference instead of a frame-0 keyframe anchor."
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -95,8 +95,9 @@
           "type": "IMAGE",
           "slot_index": 0,
           "links": [
-            27,
-            33
+            33,
+            34,
+            35
           ]
         }
       ],
@@ -106,45 +107,6 @@
         "ver": "0.3.64"
       },
       "widgets_values": []
-    },
-    {
-      "id": 16,
-      "type": "MiniMaxH3SelectFrame",
-      "pos": [
-        947.5533971674892,
-        -402.2422752444253
-      ],
-      "size": [
-        250,
-        58
-      ],
-      "flags": {},
-      "order": 13,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 27
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            34,
-            35
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "MiniMaxH3SelectFrame"
-      },
-      "widgets_values": [
-        0
-      ]
     },
     {
       "id": 10,
@@ -642,7 +604,7 @@
         "The scenery doesn't move at all, and the camera is fixed. It switches from day to night.",
         768,
         1344,
-        5,
+        1,
         "keyframe"
       ]
     },
@@ -785,14 +747,6 @@
       "IMAGE"
     ],
     [
-      27,
-      9,
-      0,
-      16,
-      0,
-      "IMAGE"
-    ],
-    [
       33,
       9,
       0,
@@ -802,7 +756,7 @@
     ],
     [
       34,
-      16,
+      9,
       0,
       10,
       0,
@@ -810,7 +764,7 @@
     ],
     [
       35,
-      16,
+      9,
       0,
       14,
       1,

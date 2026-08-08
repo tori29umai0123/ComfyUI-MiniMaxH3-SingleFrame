@@ -4,7 +4,7 @@
 
 ## 日本語
 
-MiniMax H3で、短い互換フレーム列を生成して、その中から1枚を取り出すための実験的なComfyUIカスタムノードです。
+MiniMax H3で、1フレーム生成や始点/終点フレーム補間を扱うための実験的なComfyUIカスタムノードです。
 
 通常の動画生成ノードとしてではなく、画像編集や始点/終点フレーム補間を静止画ワークフローに近い形で扱うことを目的にしています。
 
@@ -12,7 +12,7 @@ MiniMax H3で、短い互換フレーム列を生成して、その中から1枚
 
 #### 1枚の画像をMiniMax H3で編集する
 
-入力画像を0番フレームに固定し、短いフレーム列を生成して、指定した1枚だけを取り出します。静止画編集に近い使い方です。
+入力画像を0番フレームに固定し、1フレームのlatentを直接生成します。静止画編集に近い使い方です。
 
 Prompt:
 
@@ -42,15 +42,14 @@ Then gradually refine the posed character into the final character design.
 
 ### ノード
 
-- `MiniMax H3 Single Frame Edit`: 入力画像とプロンプトからMiniMax H3用のconditioningとAV latentを作ります。`frame_count` のデフォルトは `5` です。`keyframe` は入力画像を0番フレームに固定し、`reference` は `<Picture 1>` の参照画像として使います。
+- `MiniMax H3 Single Frame Edit`: 入力画像とプロンプトからMiniMax H3用のconditioningとAV latentを作ります。`frame_count` のデフォルトは `1` で、1つのvideo latent tokenから1フレームだけをデコードします。`keyframe` は入力画像を0番フレームに固定し、`reference` は `<Picture 1>` の参照画像として使います。
 - `MiniMax H3 Start End Frame Interpolate`: `start_frame` を0番フレーム、`end_frame` を `frame_count - 1` に固定します。`frame_count` のデフォルトは `5` です。
 - `MiniMax H3 Temporal RoPE Patch`: target video tokenの時間RoPEを指定フレームへ寄せる実験用MODELパッチです。静止画寄りの出力を狙う場合に使います。
 - `Empty MiniMax H3 Single Frame Latent`: カスタムワークフロー向けにMiniMax H3互換の空AV latentを作ります。
-- `MiniMax H3 Select Frame`: デコード後の画像列から1枚を選択します。デフォルトは0番フレームです。
 
 ### フレーム数
 
-MiniMax H3互換の都合で、指定した `frame_count` は次の条件を満たす値に切り上げます。
+MiniMax H3互換の都合で、複数フレームの `frame_count` は次の条件を満たす値に切り上げます。
 
 ```text
 frame_count % 17 == 5
@@ -66,7 +65,7 @@ frame_count % 17 == 5
 23 -> 39
 ```
 
-最小値は `5` です。2フレームだけを直接生成するのではなく、5フレーム生成して必要なフレームを `MiniMax H3 Select Frame` で取り出します。
+`MiniMax H3 Single Frame Edit` では実験的な静止画パスとして `frame_count = 1` も使えます。`2` から `4` は従来どおり5フレーム互換グリッドに丸めます。Start/End補間の最小値は `5` のままです。
 
 ### Temporal RoPE Patch
 
@@ -107,7 +106,7 @@ ComfyUIでワークフローを開き、UNET、CLIP、VAE、入力画像のフ�
 
 ## English
 
-Experimental ComfyUI custom nodes for MiniMax H3 that generate a short compatible frame sequence and extract a single frame from it.
+Experimental ComfyUI custom nodes for MiniMax H3 single-frame generation and start/end frame interpolation.
 
 These nodes are intended for image-editing-like workflows and start/end frame interpolation, not as a general video generation wrapper.
 
@@ -115,7 +114,7 @@ These nodes are intended for image-editing-like workflows and start/end frame in
 
 #### Edit one image with MiniMax H3
 
-The input image is anchored at frame 0, MiniMax H3 generates a short frame sequence, and one selected frame is extracted. This is intended for still-image-like editing.
+The input image is anchored at frame 0 and MiniMax H3 generates a single-frame latent directly. This is intended for still-image-like editing.
 
 Prompt:
 
@@ -145,15 +144,14 @@ Then gradually refine the posed character into the final character design.
 
 ### Nodes
 
-- `MiniMax H3 Single Frame Edit`: Creates MiniMax H3 conditioning and an AV latent from an input image and prompt. `frame_count` defaults to `5`. `keyframe` anchors the input image at frame 0, while `reference` uses it as `<Picture 1>` reference conditioning.
+- `MiniMax H3 Single Frame Edit`: Creates MiniMax H3 conditioning and an AV latent from an input image and prompt. `frame_count` defaults to `1`, which uses a single video latent token and decodes one frame. `keyframe` anchors the input image at frame 0, while `reference` uses it as `<Picture 1>` reference conditioning.
 - `MiniMax H3 Start End Frame Interpolate`: Anchors `start_frame` at frame 0 and `end_frame` at `frame_count - 1`. `frame_count` defaults to `5`.
 - `MiniMax H3 Temporal RoPE Patch`: An experimental MODEL patch that pulls the target video token temporal RoPE toward one selected frame. Use it when trying to make the output more still-image-like.
 - `Empty MiniMax H3 Single Frame Latent`: Creates an empty MiniMax H3-compatible AV latent for custom workflows.
-- `MiniMax H3 Select Frame`: Selects one image from the decoded image sequence. The default frame index is `0`.
 
 ### Frame Count
 
-For MiniMax H3 compatibility, the requested `frame_count` is rounded up until it satisfies:
+For MiniMax H3 compatibility, multi-frame requests are rounded up until `frame_count` satisfies:
 
 ```text
 frame_count % 17 == 5
@@ -169,7 +167,7 @@ Examples:
 23 -> 39
 ```
 
-The minimum is `5`. To get fewer output images, generate 5 frames and extract the needed frame with `MiniMax H3 Select Frame`.
+`MiniMax H3 Single Frame Edit` also accepts `frame_count = 1` as an experimental still-image path. Other counts below `5` still snap to the compatible 5-frame grid. For Start/End interpolation, the minimum remains `5`.
 
 ### Temporal RoPE Patch
 

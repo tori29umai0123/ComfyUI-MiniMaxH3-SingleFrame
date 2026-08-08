@@ -11,6 +11,7 @@ import nodes
 
 CANVAS_MULTIPLE = 32
 COMPAT_FRAME_COUNT = 5
+SINGLE_FRAME_COUNT = 1
 FPS = 24
 AUDIO_LATENT_FPS = 40
 
@@ -23,6 +24,8 @@ def _resize(image, width, height, crop):
 
 def _align_frame_count(frame_count):
     frame_count = int(frame_count)
+    if frame_count <= SINGLE_FRAME_COUNT:
+        return SINGLE_FRAME_COUNT
     frame_count = max(COMPAT_FRAME_COUNT, frame_count)
     while frame_count % 17 != 5:
         frame_count += 1
@@ -30,6 +33,8 @@ def _align_frame_count(frame_count):
 
 
 def _video_latent_t(frame_count):
+    if frame_count <= SINGLE_FRAME_COUNT:
+        return 1
     return 2 if frame_count <= COMPAT_FRAME_COUNT else ((frame_count - COMPAT_FRAME_COUNT) // 17) * 5 + 2
 
 
@@ -107,7 +112,7 @@ class EmptyMiniMaxH3SingleFrameLatent:
 
     def generate(self, width, height):
         width, height = _snap_canvas(width, height)
-        latent, _ = _empty_av_latent(width, height, COMPAT_FRAME_COUNT)
+        latent, _ = _empty_av_latent(width, height, SINGLE_FRAME_COUNT)
         return (latent,)
 
 
@@ -146,7 +151,7 @@ class MiniMaxH3SingleFrameEdit:
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
                 "width": ("INT", {"default": 1344, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
                 "height": ("INT", {"default": 768, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
-                "frame_count": ("INT", {"default": 5, "min": 5, "max": 3600, "step": 17}),
+                "frame_count": ("INT", {"default": 1, "min": 1, "max": 3600, "step": 1}),
                 "image_mode": (["keyframe", "reference"], {
                     "tooltip": "keyframe anchors the source image at frame 0; reference adds it as <Picture 1> conditioning.",
                 }),
@@ -248,31 +253,11 @@ class MiniMaxH3StartEndFrameInterpolate:
         return (cond, latent)
 
 
-class MiniMaxH3SelectFrame:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "images": ("IMAGE",),
-                "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600}),
-            }
-        }
-
-    RETURN_TYPES = ("IMAGE",)
-    FUNCTION = "select"
-    CATEGORY = "image/video"
-
-    def select(self, images, frame_index):
-        frame_index = max(0, min(images.shape[0] - 1, frame_index))
-        return (images[frame_index:frame_index + 1].clone(),)
-
-
 NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
     "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
-    "MiniMaxH3SelectFrame": MiniMaxH3SelectFrame,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -280,5 +265,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",
-    "MiniMaxH3SelectFrame": "MiniMax H3 Select Frame",
 }
