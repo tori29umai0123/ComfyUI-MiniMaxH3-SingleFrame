@@ -601,7 +601,7 @@
     },
     {
       "id": 11,
-      "type": "VAEDecode",
+      "type": "MiniMaxH3VAEDecodeFrame",
       "pos": [
         2145.9328358611206,
         -292.567999396554
@@ -638,11 +638,13 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "VAEDecode",
-        "cnr_id": "comfy-core",
+        "Node name for S&R": "MiniMaxH3VAEDecodeFrame",
         "ver": "0.3.64"
       },
-      "widgets_values": []
+      "widgets_values": [
+        "middle",
+        0
+      ]
     },
     {
       "id": 14,

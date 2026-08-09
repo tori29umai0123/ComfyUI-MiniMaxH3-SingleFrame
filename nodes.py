@@ -141,6 +141,55 @@ class MiniMaxH3TemporalRoPEPatch:
         return (m,)
 
 
+def _select_decoded_frames(images, frame_select, frame_index):
+    if len(images.shape) != 5:
+        return images
+
+    if frame_select == "all_frames":
+        return images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+
+    frame_count = images.shape[1]
+    if frame_select == "first":
+        index = 0
+    elif frame_select == "middle":
+        index = frame_count // 2
+    elif frame_select == "last":
+        index = frame_count - 1
+    else:
+        index = max(0, min(frame_count - 1, int(frame_index)))
+
+    return images[:, index]
+
+
+class MiniMaxH3VAEDecodeFrame:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "samples": ("LATENT",),
+                "vae": ("VAE",),
+                "frame_select": (["last", "middle", "first", "index", "all_frames"], {
+                    "default": "last",
+                    "tooltip": "Select the decoded video frame. MiniMax H3 single-frame latents decode through the VAE's last-frame path.",
+                }),
+                "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600, "tooltip": "Used only when frame_select is index."}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "decode"
+    CATEGORY = "model/latent/minimax"
+
+    def decode(self, vae, samples, frame_select="last", frame_index=0):
+        latent = samples["samples"]
+        if latent.is_nested:
+            latent = latent.unbind()[0]
+
+        images = vae.decode(latent)
+        images = _select_decoded_frames(images, frame_select, frame_index)
+        return (images,)
+
+
 class MiniMaxH3SingleFrameEdit:
     @classmethod
     def INPUT_TYPES(cls):
@@ -256,6 +305,7 @@ class MiniMaxH3StartEndFrameInterpolate:
 NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
     "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
+    "MiniMaxH3VAEDecodeFrame": MiniMaxH3VAEDecodeFrame,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
 }
@@ -263,6 +313,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": "Empty MiniMax H3 Single Frame Latent",
     "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
+    "MiniMaxH3VAEDecodeFrame": "MiniMax H3 VAE Decode Frame",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",
 }
