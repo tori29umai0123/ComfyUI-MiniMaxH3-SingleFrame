@@ -173,7 +173,7 @@ Examples:
 
 MiniMax H3 latents are audio-video latents. ComfyUI's standard `VAEDecode` takes the first stream from nested AV latents and decodes the video, but it flattens decoded video frames into an IMAGE batch. The `MiniMax H3 VAE Decode Frame` node makes the frame selection explicit so the workflow does not depend on an implicit batch index.
 
-For `frame_count = 1`, select `last`. For the default Start/End interpolation workflow with 5 decoded frames, select `middle` to get the generated middle frame rather than one of the anchored endpoint frames.
+For `frame_count = 1`, ComfyUI's MiniMax H3 VAE normally decodes an internal short block and keeps the last frame. This node preserves that default when `frame_select` is `last`, but `first`, `middle`, `index`, and `all_frames` use an experimental internal MiniMax H3 VAE path so you can inspect or select frames before that last-frame trim. For the default Start/End interpolation workflow with 5 decoded frames, select `middle` to get the generated middle frame rather than one of the anchored endpoint frames.
 
 ### Temporal RoPE Patch
 

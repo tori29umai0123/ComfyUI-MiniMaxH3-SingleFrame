@@ -171,6 +171,34 @@ def _select_decoded_frames(images, frame_select, frame_index):
     return images[:, index]
 
 
+def _decode_minimax_single_latent_internal_frames(vae, latent):
+    if len(latent.shape) != 5 or latent.shape[2] != 1:
+        return None
+
+    model = getattr(vae, "first_stage_model", None)
+    if not all(hasattr(model, attr) for attr in ("_adaptive_decode", "latents_mean", "latents_std", "pixel_mean", "pixel_std")):
+        return None
+
+    with comfy.model_management.cuda_device_context(vae.device):
+        memory_used = vae.memory_used_decode(latent.shape, vae.vae_dtype)
+        comfy.model_management.load_models_gpu(
+            [vae.patcher],
+            memory_required=memory_used,
+            force_full_load=vae.disable_offload,
+        )
+        z = latent.to(device=vae.device, dtype=vae.vae_dtype)
+        latents_mean = model.latents_mean.view(1, -1, 1, 1, 1).to(z)
+        latents_std = model.latents_std.view(1, -1, 1, 1, 1).to(z)
+        z = z * latents_std + latents_mean
+
+        frames = model._adaptive_decode(z).float()
+        frames.mul_(model.pixel_std.to(frames)).add_(model.pixel_mean.to(frames)).clamp_(0.0, 1.0).mul_(2.0).sub_(1.0)
+        frames = frames.to(device=vae.output_device, dtype=vae.vae_output_dtype(), copy=True)
+        vae.process_output(frames)
+
+    return frames.to(vae.output_device).movedim(1, -1)
+
+
 class MiniMaxH3VAEDecodeFrame:
     @classmethod
     def INPUT_TYPES(cls):
@@ -195,7 +223,12 @@ class MiniMaxH3VAEDecodeFrame:
         if latent.is_nested:
             latent = latent.unbind()[0]
 
-        images = vae.decode(latent)
+        images = None
+        if frame_select != "last":
+            images = _decode_minimax_single_latent_internal_frames(vae, latent)
+
+        if images is None:
+            images = vae.decode(latent)
         images = _select_decoded_frames(images, frame_select, frame_index)
         return (images,)
 
