@@ -406,7 +406,7 @@
         "ver": "0.3.64"
       },
       "widgets_values": [
-        "minimax_h3_video_vae_fp16.safetensors"
+        "minimax_h3_t1_image_vae_step1597.safetensors"
       ]
     },
     {
