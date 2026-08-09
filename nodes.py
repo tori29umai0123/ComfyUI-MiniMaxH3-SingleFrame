@@ -14,6 +14,9 @@ COMPAT_FRAME_COUNT = 5
 SINGLE_FRAME_COUNT = 1
 FPS = 24
 AUDIO_LATENT_FPS = 40
+MAX_FRAME_COUNT = 3600
+COMPAT_FRAME_COUNT_OPTIONS = [str(i) for i in range(COMPAT_FRAME_COUNT, MAX_FRAME_COUNT + 1, 17)]
+SINGLE_FRAME_COUNT_OPTIONS = [str(SINGLE_FRAME_COUNT)] + COMPAT_FRAME_COUNT_OPTIONS
 
 
 def _resize(image, width, height, crop):
@@ -30,6 +33,13 @@ def _align_frame_count(frame_count):
     while frame_count % 17 != 5:
         frame_count += 1
     return frame_count
+
+
+def _parse_frame_count(frame_count, default):
+    try:
+        return int(frame_count)
+    except (TypeError, ValueError):
+        return default
 
 
 def _video_latent_t(frame_count):
@@ -200,7 +210,7 @@ class MiniMaxH3SingleFrameEdit:
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
                 "width": ("INT", {"default": 1344, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
                 "height": ("INT", {"default": 768, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
-                "frame_count": ("INT", {"default": 1, "min": 1, "max": 3600, "step": 1}),
+                "frame_count": (SINGLE_FRAME_COUNT_OPTIONS, {"default": str(SINGLE_FRAME_COUNT)}),
                 "image_mode": (["keyframe", "reference"], {
                     "tooltip": "keyframe anchors the source image at frame 0; reference adds it as <Picture 1> conditioning.",
                 }),
@@ -217,8 +227,12 @@ class MiniMaxH3SingleFrameEdit:
 
     def encode(self, clip, vae, prompt, width, height, frame_count=5, image_mode="keyframe", image=None):
         if isinstance(frame_count, str):
-            image_mode = frame_count
-            frame_count = 5
+            parsed_frame_count = _parse_frame_count(frame_count, None)
+            if parsed_frame_count is None:
+                image_mode = frame_count
+                frame_count = 5
+            else:
+                frame_count = parsed_frame_count
         width, height = _snap_canvas(width, height)
         latent, frame_count = _empty_av_latent(width, height, frame_count)
 
@@ -265,7 +279,7 @@ class MiniMaxH3StartEndFrameInterpolate:
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
                 "width": ("INT", {"default": 1344, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
                 "height": ("INT", {"default": 768, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
-                "frame_count": ("INT", {"default": 5, "min": 5, "max": 3600, "step": 17}),
+                "frame_count": (COMPAT_FRAME_COUNT_OPTIONS, {"default": str(COMPAT_FRAME_COUNT)}),
             },
         }
 
@@ -275,8 +289,7 @@ class MiniMaxH3StartEndFrameInterpolate:
     CATEGORY = "model/conditioning/minimax"
 
     def encode(self, clip, vae, start_frame, end_frame, prompt, width, height, frame_count=5):
-        if isinstance(frame_count, str):
-            frame_count = 5
+        frame_count = _parse_frame_count(frame_count, COMPAT_FRAME_COUNT)
         width, height = _snap_canvas(width, height)
         latent, frame_count = _empty_av_latent(width, height, frame_count)
 

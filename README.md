@@ -161,14 +161,13 @@ frame_count % 17 == 5
 Examples:
 
 ```text
-5  -> 5
-6  -> 22
-21 -> 22
-22 -> 22
-23 -> 39
+1
+5
+22
+39
 ```
 
-`MiniMax H3 Single Frame Edit` also accepts `frame_count = 1` as an experimental still-image path. Other counts below `5` still snap to the compatible 5-frame grid. For Start/End interpolation, the minimum remains `5`.
+`MiniMax H3 Single Frame Edit` exposes only `1` and MiniMax H3-compatible multi-frame counts in the UI. `frame_count = 1` is an experimental still-image path. For Start/End interpolation, the minimum remains `5`, and only compatible multi-frame counts are shown.
 
 ### VAE Decode
 
