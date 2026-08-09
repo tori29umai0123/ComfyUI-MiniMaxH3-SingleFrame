@@ -171,16 +171,18 @@ def _select_decoded_frames(images, frame_select, frame_index):
     return images[:, index]
 
 
-def _decode_minimax_single_latent_first_frame(vae, latent):
+def _decode_minimax_single_latent_temporal_first_frame(vae, latent):
     if len(latent.shape) != 5 or latent.shape[2] != 1:
         return None
 
     model = getattr(vae, "first_stage_model", None)
-    if not all(hasattr(model, attr) for attr in ("_adaptive_decode", "latents_mean", "latents_std", "pixel_mean", "pixel_std")):
+    if not all(hasattr(model, attr) for attr in ("decode_temporal", "latents_mean", "latents_std", "pixel_mean", "pixel_std")):
         return None
 
     with comfy.model_management.cuda_device_context(vae.device):
-        memory_used = vae.memory_used_decode(latent.shape, vae.vae_dtype)
+        decode_shape = list(latent.shape)
+        decode_shape[2] = 2
+        memory_used = vae.memory_used_decode(tuple(decode_shape), vae.vae_dtype)
         comfy.model_management.load_models_gpu(
             [vae.patcher],
             memory_required=memory_used,
@@ -190,8 +192,9 @@ def _decode_minimax_single_latent_first_frame(vae, latent):
         latents_mean = model.latents_mean.view(1, -1, 1, 1, 1).to(z)
         latents_std = model.latents_std.view(1, -1, 1, 1, 1).to(z)
         z = z * latents_std + latents_mean
+        z = torch.cat([z, z[:, :, -1:]], dim=2)
 
-        frames = model._adaptive_decode(z).float()
+        frames = model.decode_temporal(z).float()
         frames = frames[:, :, :1, :, :]
         frames.mul_(model.pixel_std.to(frames)).add_(model.pixel_mean.to(frames)).clamp_(0.0, 1.0).mul_(2.0).sub_(1.0)
         frames = frames.to(device=vae.output_device, dtype=vae.vae_output_dtype(), copy=True)
@@ -209,7 +212,7 @@ class MiniMaxH3VAEDecodeFrame:
                 "vae": ("VAE",),
                 "frame_select": (["first", "middle", "last", "index", "all_frames"], {
                     "default": "first",
-                    "tooltip": "Select the decoded video frame. MiniMax H3 single-frame latents keep the first internal VAE frame.",
+                    "tooltip": "Select the decoded video frame. MiniMax H3 single-frame latents are duplicated only for temporal VAE decode, then the first frame is kept.",
                 }),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600, "tooltip": "Used only when frame_select is index."}),
             }
@@ -224,7 +227,7 @@ class MiniMaxH3VAEDecodeFrame:
         if latent.is_nested:
             latent = latent.unbind()[0]
 
-        images = _decode_minimax_single_latent_first_frame(vae, latent)
+        images = _decode_minimax_single_latent_temporal_first_frame(vae, latent)
         if images is None:
             images = vae.decode(latent)
         images = _select_decoded_frames(images, frame_select, frame_index)

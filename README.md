@@ -147,7 +147,7 @@ Then gradually refine the posed character into the final character design.
 - `MiniMax H3 Single Frame Edit`: Creates MiniMax H3 conditioning and an AV latent from an input image and prompt. `frame_count` defaults to `1`, which uses a single video latent token and decodes one frame. `keyframe` anchors the input image at frame 0, while `reference` uses it as `<Picture 1>` reference conditioning.
 - `MiniMax H3 Start End Frame Interpolate`: Anchors `start_frame` at frame 0 and `end_frame` at `frame_count - 1`. `frame_count` defaults to `5`.
 - `MiniMax H3 Temporal RoPE Patch`: An experimental MODEL patch that pulls the target video token temporal RoPE toward one selected frame. Use it when trying to make the output more still-image-like.
-- `MiniMax H3 VAE Decode Frame`: Decodes the video stream from a MiniMax H3 AV latent and explicitly selects `first`, `middle`, `last`, `index`, or `all_frames`. For the experimental `frame_count = 1` path, the node keeps the first frame from the MiniMax H3 VAE's internal short temporal block. Use `middle` for the 5-frame start/end interpolation sample.
+- `MiniMax H3 VAE Decode Frame`: Decodes the video stream from a MiniMax H3 AV latent and explicitly selects `first`, `middle`, `last`, `index`, or `all_frames`. For the experimental `frame_count = 1` path, the DiT output remains a single latent frame, but the node duplicates that latent only at VAE decode time, uses MiniMax H3's temporal decode path, and keeps the first decoded frame. Use `middle` for the 5-frame start/end interpolation sample.
 - `Empty MiniMax H3 Single Frame Latent`: Creates an empty MiniMax H3-compatible AV latent for custom workflows.
 
 ### Frame Count
@@ -173,7 +173,7 @@ Examples:
 
 MiniMax H3 latents are audio-video latents. ComfyUI's standard `VAEDecode` takes the first stream from nested AV latents and decodes the video, but it flattens decoded video frames into an IMAGE batch. The `MiniMax H3 VAE Decode Frame` node makes the frame selection explicit so the workflow does not depend on an implicit batch index.
 
-For `frame_count = 1`, ComfyUI's MiniMax H3 VAE normally decodes an internal short block and keeps the last frame. This node instead keeps the first internal frame for MiniMax H3 single-frame latents, then applies the normal frame selection behavior. For the default Start/End interpolation workflow with 5 decoded frames, select `middle` to get the generated middle frame rather than one of the anchored endpoint frames.
+For `frame_count = 1`, ComfyUI's MiniMax H3 VAE normally decodes one latent token through a direct single-clip path and keeps the last internal temporal slice. This node instead duplicates the generated single latent token to two tokens only before VAE decoding, calls the temporal decode path, and keeps the first decoded frame. For the default Start/End interpolation workflow with 5 decoded frames, select `middle` to get the generated middle frame rather than one of the anchored endpoint frames.
 
 ### Temporal RoPE Patch
 
