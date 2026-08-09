@@ -171,7 +171,7 @@ def _select_decoded_frames(images, frame_select, frame_index):
     return images[:, index]
 
 
-def _decode_minimax_single_latent_internal_frames(vae, latent):
+def _decode_minimax_single_latent_first_frame(vae, latent):
     if len(latent.shape) != 5 or latent.shape[2] != 1:
         return None
 
@@ -192,6 +192,7 @@ def _decode_minimax_single_latent_internal_frames(vae, latent):
         z = z * latents_std + latents_mean
 
         frames = model._adaptive_decode(z).float()
+        frames = frames[:, :, :1, :, :]
         frames.mul_(model.pixel_std.to(frames)).add_(model.pixel_mean.to(frames)).clamp_(0.0, 1.0).mul_(2.0).sub_(1.0)
         frames = frames.to(device=vae.output_device, dtype=vae.vae_output_dtype(), copy=True)
         vae.process_output(frames)
@@ -206,9 +207,9 @@ class MiniMaxH3VAEDecodeFrame:
             "required": {
                 "samples": ("LATENT",),
                 "vae": ("VAE",),
-                "frame_select": (["last", "middle", "first", "index", "all_frames"], {
-                    "default": "last",
-                    "tooltip": "Select the decoded video frame. MiniMax H3 single-frame latents decode through the VAE's last-frame path.",
+                "frame_select": (["first", "middle", "last", "index", "all_frames"], {
+                    "default": "first",
+                    "tooltip": "Select the decoded video frame. MiniMax H3 single-frame latents keep the first internal VAE frame.",
                 }),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 3600, "tooltip": "Used only when frame_select is index."}),
             }
@@ -223,10 +224,7 @@ class MiniMaxH3VAEDecodeFrame:
         if latent.is_nested:
             latent = latent.unbind()[0]
 
-        images = None
-        if frame_select != "last":
-            images = _decode_minimax_single_latent_internal_frames(vae, latent)
-
+        images = _decode_minimax_single_latent_first_frame(vae, latent)
         if images is None:
             images = vae.decode(latent)
         images = _select_decoded_frames(images, frame_select, frame_index)
