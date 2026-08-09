@@ -1,7 +1,7 @@
 {
   "id": "b6db37a0-87e2-4fdf-b78d-8d953a35f2d6",
   "revision": 0,
-  "last_node_id": 38,
+  "last_node_id": 39,
   "last_link_id": 84,
   "nodes": [
     {
@@ -27,6 +27,30 @@
       ],
       "color": "#432",
       "bgcolor": "#653"
+    },
+    {
+      "id": 39,
+      "type": "MarkdownNote",
+      "pos": [
+        -760,
+        690
+      ],
+      "size": [
+        1240,
+        230
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "MiniMax H3 model downloads",
+      "properties": {},
+      "widgets_values": [
+        "Download the model files to these ComfyUI folders:\n\n- `models\\diffusion_models`: https://huggingface.co/Kijai/MiniMax-H3-experimental/blob/main/minimax_h3_fl2va_pruned_w4a8_mixed.safetensors\n- `models\\vae`: https://huggingface.co/Mamad8/MiniMax-H3-Image-VAE/blob/main/minimax_h3_t1_image_vae_step1597.safetensors\n- `models\\text_encoders`: https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
     },
     {
       "id": 1,
