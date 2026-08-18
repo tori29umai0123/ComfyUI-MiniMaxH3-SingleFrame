@@ -73,6 +73,20 @@ def _freeze_target_video_rope(layout, frame_index, strength):
     layout.position_ids = position_ids
 
 
+def _shift_target_video_rope_to_pixel_frame(layout, target_index, strength):
+    video_seg = next((a, b) for a, b, kind in layout.segments if kind == "video")
+    a, b = video_seg
+    strength = max(0.0, min(1.0, float(strength)))
+    if strength <= 0.0:
+        return
+
+    video_t0 = layout.position_ids[a, 0]
+    target_t = video_t0 + FRAME_RESCALE * int(target_index)
+    position_ids = layout.position_ids.clone()
+    position_ids[a:b, 0].lerp_(target_t, strength)
+    layout.position_ids = position_ids
+
+
 def _temporal_rope_wrapper(frame_index, strength):
     def wrapper(executor, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
         try:
@@ -92,6 +106,31 @@ def _temporal_rope_wrapper(frame_index, strength):
                 frame_count=payload.get("frame_count"),
             )
             _freeze_target_video_rope(payload["layout"], frame_index, strength)
+            minimax_payload = payload
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            pass
+        return executor(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
+    return wrapper
+
+
+def _target_index_rope_wrapper(target_index, strength):
+    def wrapper(executor, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        try:
+            video_x, audio_x = x[0], x[1]
+            latent_t, lat_h, lat_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
+            lat_h = (lat_h + 1) // 2 * 2
+            lat_w = (lat_w + 1) // 2 * 2
+            payload = dict(minimax_payload or {})
+            payload["layout"] = minimax_model.PackedLayout(
+                context.shape[1],
+                latent_t,
+                lat_h,
+                lat_w,
+                audio_x.shape[-1],
+                keyframes=payload.get("keyframes"),
+                refs=payload.get("refs"),
+            )
+            _shift_target_video_rope_to_pixel_frame(payload["layout"], target_index, strength)
             minimax_payload = payload
         except (AttributeError, IndexError, KeyError, TypeError, ValueError):
             pass
@@ -147,6 +186,42 @@ class MiniMaxH3TemporalRoPEPatch:
             comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
             "minimax_h3_temporal_rope",
             _temporal_rope_wrapper(frame_index, strength),
+        )
+        return (m,)
+
+
+class MiniMaxH3TargetIndexRoPEPatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "target_index": ("INT", {
+                    "default": 24,
+                    "min": -3600,
+                    "max": 3600,
+                    "tooltip": "Pixel-frame index for the generated target frame. Use 24 to match FL2VA one-frame edit LoRA training with fp_1f_target_index=24.",
+                }),
+                "strength": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "How strongly to move the target video token RoPE time to target_index. Use 1.0 to match the training index exactly.",
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "patch"
+    CATEGORY = "model/patches/minimax"
+
+    def patch(self, model, target_index, strength):
+        m = model.clone()
+        m.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+            "minimax_h3_target_index_rope",
+            _target_index_rope_wrapper(target_index, strength),
         )
         return (m,)
 
@@ -352,6 +427,7 @@ class MiniMaxH3StartEndFrameInterpolate:
 NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
     "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
+    "MiniMaxH3TargetIndexRoPEPatch": MiniMaxH3TargetIndexRoPEPatch,
     "MiniMaxH3VAEDecodeFrame": MiniMaxH3VAEDecodeFrame,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
@@ -360,6 +436,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": "Empty MiniMax H3 Single Frame Latent",
     "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
+    "MiniMaxH3TargetIndexRoPEPatch": "MiniMax H3 Target Index RoPE Patch",
     "MiniMaxH3VAEDecodeFrame": "MiniMax H3 VAE Decode Frame",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",

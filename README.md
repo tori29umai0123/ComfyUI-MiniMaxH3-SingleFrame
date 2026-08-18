@@ -104,6 +104,28 @@ ComfyUIでワークフローを開き、UNET、CLIP、VAE、入力画像のフ�
 
 このカスタムノードはMiniMax H3本体のモデルコードを直接パッチしません。
 
+### MiniMax H3 Target Index RoPE Patch
+
+`MiniMax H3 Target Index RoPE Patch` は、musubi-tuner PR #1058 の 1フレーム FL2VA 画像編集LoRA向けの MODEL パッチです。UNET Loader と LoRA Loader の後、KSampler の前に接続してください。
+
+学習TOMLが次の設定の場合:
+
+```toml
+fp_1f_clean_indices = [0]
+fp_1f_target_index = 24
+```
+
+推論側は次の設定にします:
+
+```text
+target_index = 24
+strength = 1.0
+```
+
+この用途では `MiniMax H3 Single Frame Edit` を `frame_count = 1`、`image_mode = keyframe` で使います。`image_mode = reference` は Ref2VA 的な参照画像扱いになるため、このFL2VA画像編集LoRAでは使わないでください。
+
+`MiniMax H3 Temporal RoPE Patch` とは用途が違います。Temporal RoPE Patch は生成tokenを latent frame index に寄せる実験用パッチです。Target Index RoPE Patch は、学習時の `fp_1f_target_index` と同じ pixel-frame index へ target video token の RoPE を合わせるためのパッチです。
+
 ## English
 
 Experimental ComfyUI custom nodes for MiniMax H3 single-frame generation and start/end frame interpolation.
@@ -147,6 +169,7 @@ Then gradually refine the posed character into the final character design.
 - `MiniMax H3 Single Frame Edit`: Creates MiniMax H3 conditioning and an AV latent from an input image and prompt. `frame_count` defaults to `1`, which uses a single video latent token and decodes one frame. `keyframe` anchors the input image at frame 0, while `reference` uses it as `<Picture 1>` reference conditioning.
 - `MiniMax H3 Start End Frame Interpolate`: Anchors `start_frame` at frame 0 and `end_frame` at `frame_count - 1`. `frame_count` defaults to `5`.
 - `MiniMax H3 Temporal RoPE Patch`: An experimental MODEL patch that pulls the target video token temporal RoPE toward one selected frame. Use it when trying to make the output more still-image-like.
+- `MiniMax H3 Target Index RoPE Patch`: A MODEL patch for one-frame FL2VA image-edit LoRAs trained with an explicit MiniMax-H3 one-frame target index, such as `fp_1f_target_index = 24` in musubi-tuner PR #1058.
 - `MiniMax H3 VAE Decode Frame`: Decodes the video stream from a MiniMax H3 AV latent and explicitly selects `first`, `middle`, `last`, `index`, or `all_frames`. For the experimental `frame_count = 1` path, the DiT output remains a single latent frame, but the node duplicates that latent only at VAE decode time, uses MiniMax H3's temporal decode path, and keeps the first decoded frame. Use `middle` for the 5-frame start/end interpolation sample.
 - `Empty MiniMax H3 Single Frame Latent`: Creates an empty MiniMax H3-compatible AV latent for custom workflows.
 
@@ -201,6 +224,28 @@ Suggested `strength` values:
 ```
 
 For Start/End interpolation, try `0.0` to `0.25`. For still-image editing, start with `1.0`.
+
+### Target Index RoPE Patch
+
+`MiniMax H3 Target Index RoPE Patch` takes a MODEL and returns a MODEL. Connect it after the UNET Loader and LoRA Loader, and before KSampler.
+
+Use this patch when running a one-frame MiniMax-H3 FL2VA image-edit LoRA trained with musubi-tuner's one-frame settings. For example, if the training TOML uses:
+
+```toml
+fp_1f_clean_indices = [0]
+fp_1f_target_index = 24
+```
+
+then set:
+
+```text
+target_index = 24
+strength = 1.0
+```
+
+For this workflow, use `MiniMax H3 Single Frame Edit` with `frame_count = 1` and `image_mode = keyframe`. Do not use `image_mode = reference` for this LoRA type, because the LoRA was trained as FL2VA conditioning from a control/keyframe image to a target image.
+
+This patch is different from `MiniMax H3 Temporal RoPE Patch`. The temporal patch freezes the generated token toward a latent frame index. The target-index patch moves the generated target video token RoPE to the pixel-frame index used during one-frame LoRA training, so it should match `fp_1f_target_index`.
 
 ### Example Workflows
 
