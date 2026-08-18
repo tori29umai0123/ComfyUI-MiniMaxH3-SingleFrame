@@ -81,7 +81,7 @@ def _shift_target_video_rope_to_pixel_frame(layout, target_index, strength):
         return
 
     video_t0 = layout.position_ids[a, 0]
-    target_t = video_t0 + FRAME_RESCALE * int(target_index)
+    target_t = video_t0 + minimax_model.FRAME_RESCALE * int(target_index)
     position_ids = layout.position_ids.clone()
     position_ids[a:b, 0].lerp_(target_t, strength)
     layout.position_ids = position_ids
@@ -129,6 +129,7 @@ def _target_index_rope_wrapper(target_index, strength):
                 audio_x.shape[-1],
                 keyframes=payload.get("keyframes"),
                 refs=payload.get("refs"),
+                frame_count=payload.get("frame_count"),
             )
             _shift_target_video_rope_to_pixel_frame(payload["layout"], target_index, strength)
             minimax_payload = payload
