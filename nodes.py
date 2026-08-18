@@ -272,9 +272,7 @@ def _decode_minimax_single_latent_temporal_first_frame(vae, latent):
 
         frames = model.decode_temporal(z).float()
         frames = frames[:, :, :1, :, :]
-        frames.mul_(model.pixel_std.to(frames)).add_(model.pixel_mean.to(frames)).clamp_(0.0, 1.0).mul_(2.0).sub_(1.0)
         frames = frames.to(device=vae.output_device, dtype=vae.vae_output_dtype(), copy=True)
-        vae.process_output(frames)
 
     return frames.to(vae.output_device).movedim(1, -1)
 
