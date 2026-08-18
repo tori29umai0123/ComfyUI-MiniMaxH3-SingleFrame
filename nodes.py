@@ -1,10 +1,13 @@
 import torch
 
+import comfy.sample
+import comfy.samplers
 import comfy.ldm.minimax.model as minimax_model
 import comfy.model_management
 import comfy.nested_tensor
 import comfy.patcher_extension
 import comfy.utils
+import latent_preview
 import node_helpers
 import nodes
 
@@ -73,17 +76,17 @@ def _freeze_target_video_rope(layout, frame_index, strength):
     layout.position_ids = position_ids
 
 
-def _shift_target_video_rope_to_pixel_frame(layout, target_index, strength):
-    video_seg = next((a, b) for a, b, kind in layout.segments if kind == "video")
-    a, b = video_seg
+def _shift_target_rope_to_pixel_frame(layout, target_index, strength):
     strength = max(0.0, min(1.0, float(strength)))
     if strength <= 0.0:
         return
 
-    video_t0 = layout.position_ids[a, 0]
-    target_t = video_t0 + minimax_model.FRAME_RESCALE * int(target_index)
+    target_offset = minimax_model.FRAME_RESCALE * int(target_index)
     position_ids = layout.position_ids.clone()
-    position_ids[a:b, 0].lerp_(target_t, strength)
+    for kind in ("audio", "video"):
+        a, b = next((a, b) for a, b, seg_kind in layout.segments if seg_kind == kind)
+        shifted_t = layout.position_ids[a:b, 0] + target_offset
+        position_ids[a:b, 0].lerp_(shifted_t, strength)
     layout.position_ids = position_ids
 
 
@@ -103,7 +106,6 @@ def _temporal_rope_wrapper(frame_index, strength):
                 audio_x.shape[-1],
                 keyframes=payload.get("keyframes"),
                 refs=payload.get("refs"),
-                frame_count=payload.get("frame_count"),
             )
             _freeze_target_video_rope(payload["layout"], frame_index, strength)
             minimax_payload = payload
@@ -129,9 +131,8 @@ def _target_index_rope_wrapper(target_index, strength):
                 audio_x.shape[-1],
                 keyframes=payload.get("keyframes"),
                 refs=payload.get("refs"),
-                frame_count=payload.get("frame_count"),
             )
-            _shift_target_video_rope_to_pixel_frame(payload["layout"], target_index, strength)
+            _shift_target_rope_to_pixel_frame(payload["layout"], target_index, strength)
             minimax_payload = payload
         except (AttributeError, IndexError, KeyError, TypeError, ValueError):
             pass
@@ -144,6 +145,57 @@ def _snap_canvas(width, height):
         max(CANVAS_MULTIPLE, round(width / CANVAS_MULTIPLE) * CANVAS_MULTIPLE),
         max(CANVAS_MULTIPLE, round(height / CANVAS_MULTIPLE) * CANVAS_MULTIPLE),
     )
+
+
+def _musubi_h3_video_sigmas(steps):
+    base = torch.linspace(1.0, 0.0, int(steps) + 1, dtype=torch.float64)
+    shift = 12.0
+    return (shift * base / (1.0 + (shift - 1.0) * base)).to(torch.float32)
+
+
+def _sample_with_sigmas(model, seed, steps, cfg, sampler_name, positive, negative, latent, sigmas, disable_noise=False):
+    latent_image = latent["samples"]
+    latent_image = comfy.sample.fix_empty_latent_channels(
+        model,
+        latent_image,
+        latent.get("downscale_ratio_spacial", None),
+        latent.get("downscale_ratio_temporal", None),
+    )
+
+    if disable_noise:
+        noise = comfy.sample.prepare_empty_noise(latent_image)
+    else:
+        batch_inds = latent["batch_index"] if "batch_index" in latent else None
+        noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
+
+    noise_mask = latent.get("noise_mask", None)
+    callback = latent_preview.prepare_callback(model, steps)
+    disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
+    samples = comfy.sample.sample(
+        model,
+        noise,
+        steps,
+        cfg,
+        sampler_name,
+        "simple",
+        positive,
+        negative,
+        latent_image,
+        denoise=1.0,
+        disable_noise=disable_noise,
+        force_full_denoise=True,
+        noise_mask=noise_mask,
+        sigmas=sigmas,
+        callback=callback,
+        disable_pbar=disable_pbar,
+        seed=seed,
+    )
+
+    out = latent.copy()
+    out.pop("downscale_ratio_spacial", None)
+    out.pop("downscale_ratio_temporal", None)
+    out["samples"] = samples
+    return (out,)
 
 
 class EmptyMiniMaxH3SingleFrameLatent:
@@ -225,6 +277,74 @@ class MiniMaxH3TargetIndexRoPEPatch:
             _target_index_rope_wrapper(target_index, strength),
         )
         return (m,)
+
+
+class MiniMaxH3MusubiOneFrameSampler:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL", {"tooltip": "MiniMax H3 model, optionally already loaded with LoRA."}),
+                "seed": ("INT", {
+                    "default": 1234,
+                    "min": 0,
+                    "max": 0xffffffffffffffff,
+                    "control_after_generate": True,
+                    "tooltip": "Noise seed. Nested video/audio noise is generated in Comfy's normal order.",
+                }),
+                "steps": ("INT", {
+                    "default": 20,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "Number of denoising steps. The sigma schedule is Musubi's shifted linear MiniMax H3 schedule.",
+                }),
+                "cfg": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 100.0,
+                    "step": 0.1,
+                    "round": 0.01,
+                    "tooltip": "Classifier-free guidance scale. MiniMax H3 edit LoRA tests usually use low values such as 1.0.",
+                }),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {
+                    "default": "res_multistep",
+                    "tooltip": "Sampler algorithm. res_multistep is the intended default for matching the Musubi command path.",
+                }),
+                "positive": ("CONDITIONING",),
+                "negative": ("CONDITIONING",),
+                "latent_image": ("LATENT",),
+                "target_index": ("INT", {
+                    "default": 24,
+                    "min": -3600,
+                    "max": 3600,
+                    "tooltip": "Generated target pixel-frame index. Use 24 for FL2VA one-frame edit LoRAs trained with fp_1f_target_index=24.",
+                }),
+                "target_strength": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Strength of the Musubi target-index RoPE shift.",
+                }),
+            },
+            "optional": {
+                "disable_noise": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "sample"
+    CATEGORY = "model/sampling/minimax"
+
+    def sample(self, model, seed, steps, cfg, sampler_name, positive, negative, latent_image, target_index, target_strength, disable_noise=False):
+        m = model.clone()
+        m.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+            "minimax_h3_musubi_target_index_rope",
+            _target_index_rope_wrapper(target_index, target_strength),
+        )
+        sigmas = _musubi_h3_video_sigmas(steps)
+        return _sample_with_sigmas(m, seed, steps, cfg, sampler_name, positive, negative, latent_image, sigmas, disable_noise=disable_noise)
 
 
 def _select_decoded_frames(images, frame_select, frame_index):
@@ -427,6 +547,7 @@ NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
     "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
     "MiniMaxH3TargetIndexRoPEPatch": MiniMaxH3TargetIndexRoPEPatch,
+    "MiniMaxH3MusubiOneFrameSampler": MiniMaxH3MusubiOneFrameSampler,
     "MiniMaxH3VAEDecodeFrame": MiniMaxH3VAEDecodeFrame,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
@@ -436,6 +557,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": "Empty MiniMax H3 Single Frame Latent",
     "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
     "MiniMaxH3TargetIndexRoPEPatch": "MiniMax H3 Target Index RoPE Patch",
+    "MiniMaxH3MusubiOneFrameSampler": "MiniMax H3 Musubi One Frame Sampler",
     "MiniMaxH3VAEDecodeFrame": "MiniMax H3 VAE Decode Frame",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",
