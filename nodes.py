@@ -140,6 +140,63 @@ def _target_index_rope_wrapper(target_index, strength):
     return wrapper
 
 
+def _augment_payload_conditions_like_musubi(payload, video_x, audio_x):
+    visual_clean = float(payload.get("visual_cond_noise_aug", minimax_model.VISUAL_COND_TIMESTEP))
+    audio_clean = float(payload.get("audio_cond_noise_aug", minimax_model.AUDIO_COND_TIMESTEP))
+    if visual_clean >= 1.0 and audio_clean >= 1.0:
+        return payload
+
+    generator = torch.Generator(device="cpu").manual_seed(int(payload.get("seed", 0)))
+    torch.randn(tuple(video_x.shape), generator=generator, dtype=torch.float32, device="cpu")
+    torch.randn(tuple(audio_x.shape), generator=generator, dtype=torch.float32, device="cpu")
+    payload = dict(payload)
+
+    if visual_clean < 1.0:
+        latents = []
+        for latent in payload.get("cond_video_latents", []):
+            noise = torch.randn(tuple(latent.shape), generator=generator, dtype=torch.float32, device="cpu")
+            noise = noise.to(device=latent.device, dtype=latent.dtype)
+            latents.append(visual_clean * latent + (1.0 - visual_clean) * noise)
+        payload["cond_video_latents"] = latents
+        payload["visual_cond_noise_aug"] = 1.0
+
+    if audio_clean < 1.0:
+        latents = []
+        for latent in payload.get("cond_audio_latents", []):
+            noise = torch.randn(tuple(latent.shape), generator=generator, dtype=torch.float32, device="cpu")
+            noise = noise.to(device=latent.device, dtype=latent.dtype)
+            latents.append(audio_clean * latent + (1.0 - audio_clean) * noise)
+        payload["cond_audio_latents"] = latents
+        payload["audio_cond_noise_aug"] = 1.0
+
+    return payload
+
+
+def _musubi_one_frame_wrapper(target_index, strength):
+    def wrapper(executor, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        try:
+            video_x, audio_x = x[0], x[1]
+            latent_t, lat_h, lat_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
+            lat_h = (lat_h + 1) // 2 * 2
+            lat_w = (lat_w + 1) // 2 * 2
+            payload = _augment_payload_conditions_like_musubi(dict(minimax_payload or {}), video_x, audio_x)
+            payload["layout"] = minimax_model.PackedLayout(
+                context.shape[1],
+                latent_t,
+                lat_h,
+                lat_w,
+                audio_x.shape[-1],
+                keyframes=payload.get("keyframes"),
+                refs=payload.get("refs"),
+            )
+            _shift_target_rope_to_pixel_frame(payload["layout"], target_index, strength)
+            minimax_payload = payload
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            pass
+        return executor(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
+    return wrapper
+
+
 def _snap_canvas(width, height):
     return (
         max(CANVAS_MULTIPLE, round(width / CANVAS_MULTIPLE) * CANVAS_MULTIPLE),
@@ -147,13 +204,31 @@ def _snap_canvas(width, height):
     )
 
 
-def _musubi_h3_video_sigmas(steps):
+def _musubi_h3_video_sigmas(steps, video_shift):
     base = torch.linspace(1.0, 0.0, int(steps) + 1, dtype=torch.float64)
-    shift = 12.0
+    shift = float(video_shift)
     return (shift * base / (1.0 + (shift - 1.0) * base)).to(torch.float32)
 
 
-def _sample_with_sigmas(model, seed, steps, cfg, sampler_name, positive, negative, latent, sigmas, disable_noise=False):
+@torch.no_grad()
+def _musubi_h3_euler_sampler_function(model, x, sigmas, extra_args=None, callback=None, disable=None):
+    # Copied in spirit from musubi_tuner.minimax_h3.sampling.sample_joint_av:
+    # the model predicts the dataward velocity v, and the latent update is
+    # x_next = x + (sigma_i - sigma_next) * v. Comfy's wrapper exposes x0_hat,
+    # so recover v = (x0_hat - x) / sigma for the packed MiniMax H3 latent.
+    extra_args = {} if extra_args is None else extra_args
+    s_in = x.new_ones([x.shape[0]])
+    for i in range(len(sigmas) - 1):
+        sigma = sigmas[i]
+        denoised = model(x, sigma * s_in, **extra_args)
+        velocity = (denoised - x) / sigma.clamp(min=1e-6).to(x)
+        if callback is not None:
+            callback({"x": x, "i": i, "sigma": sigma, "sigma_hat": sigma, "denoised": denoised})
+        x = x + (sigma - sigmas[i + 1]).to(x) * velocity
+    return x
+
+
+def _sample_with_musubi_euler(model, seed, steps, cfg, positive, negative, latent, sigmas, disable_noise=False):
     latent_image = latent["samples"]
     latent_image = comfy.sample.fix_empty_latent_channels(
         model,
@@ -168,24 +243,20 @@ def _sample_with_sigmas(model, seed, steps, cfg, sampler_name, positive, negativ
         batch_inds = latent["batch_index"] if "batch_index" in latent else None
         noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
 
+    sampler = comfy.samplers.KSAMPLER(_musubi_h3_euler_sampler_function)
     noise_mask = latent.get("noise_mask", None)
     callback = latent_preview.prepare_callback(model, steps)
     disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
-    samples = comfy.sample.sample(
+    samples = comfy.sample.sample_custom(
         model,
         noise,
-        steps,
         cfg,
-        sampler_name,
-        "simple",
+        sampler,
+        sigmas,
         positive,
         negative,
         latent_image,
-        denoise=1.0,
-        disable_noise=disable_noise,
-        force_full_denoise=True,
         noise_mask=noise_mask,
-        sigmas=sigmas,
         callback=callback,
         disable_pbar=disable_pbar,
         seed=seed,
@@ -279,7 +350,7 @@ class MiniMaxH3TargetIndexRoPEPatch:
         return (m,)
 
 
-class MiniMaxH3MusubiOneFrameSampler:
+class MiniMaxH3MusubiEulerOneFrameSampler:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -290,13 +361,13 @@ class MiniMaxH3MusubiOneFrameSampler:
                     "min": 0,
                     "max": 0xffffffffffffffff,
                     "control_after_generate": True,
-                    "tooltip": "Noise seed. Nested video/audio noise is generated in Comfy's normal order.",
+                    "tooltip": "Noise seed. Video noise is drawn first, audio noise second, matching the MiniMax H3 packed latent order.",
                 }),
                 "steps": ("INT", {
                     "default": 20,
                     "min": 1,
                     "max": 10000,
-                    "tooltip": "Number of denoising steps. The sigma schedule is Musubi's shifted linear MiniMax H3 schedule.",
+                    "tooltip": "Number of denoising steps. This uses Musubi's shifted MiniMax H3 sigma schedule.",
                 }),
                 "cfg": ("FLOAT", {
                     "default": 1.0,
@@ -304,11 +375,21 @@ class MiniMaxH3MusubiOneFrameSampler:
                     "max": 100.0,
                     "step": 0.1,
                     "round": 0.01,
-                    "tooltip": "Classifier-free guidance scale. MiniMax H3 edit LoRA tests usually use low values such as 1.0.",
+                    "tooltip": "Classifier-free guidance scale. Use 1.0 to match the provided Musubi command.",
                 }),
-                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {
-                    "default": "res_multistep",
-                    "tooltip": "Sampler algorithm. res_multistep is the intended default for matching the Musubi command path.",
+                "h3_shift_video": ("FLOAT", {
+                    "default": 12.0,
+                    "min": 0.01,
+                    "max": 100.0,
+                    "step": 0.01,
+                    "tooltip": "MiniMax H3 video sigma shift. Musubi default is 12.0.",
+                }),
+                "h3_shift_audio": ("FLOAT", {
+                    "default": 3.0,
+                    "min": 0.01,
+                    "max": 100.0,
+                    "step": 0.01,
+                    "tooltip": "MiniMax H3 audio sigma shift. Musubi default is 3.0.",
                 }),
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
@@ -317,14 +398,14 @@ class MiniMaxH3MusubiOneFrameSampler:
                     "default": 24,
                     "min": -3600,
                     "max": 3600,
-                    "tooltip": "Generated target pixel-frame index. Use 24 for FL2VA one-frame edit LoRAs trained with fp_1f_target_index=24.",
+                    "tooltip": "Generated target pixel-frame index. Use 24 for --one_frame target_index=24.",
                 }),
                 "target_strength": ("FLOAT", {
                     "default": 1.0,
                     "min": 0.0,
                     "max": 1.0,
                     "step": 0.01,
-                    "tooltip": "Strength of the Musubi target-index RoPE shift.",
+                    "tooltip": "Strength of the target-index RoPE shift. Use 1.0 to match Musubi.",
                 }),
             },
             "optional": {
@@ -336,15 +417,18 @@ class MiniMaxH3MusubiOneFrameSampler:
     FUNCTION = "sample"
     CATEGORY = "model/sampling/minimax"
 
-    def sample(self, model, seed, steps, cfg, sampler_name, positive, negative, latent_image, target_index, target_strength, disable_noise=False):
+    def sample(self, model, seed, steps, cfg, h3_shift_video, h3_shift_audio, positive, negative, latent_image, target_index, target_strength, disable_noise=False):
         m = model.clone()
+        transformer_options = m.model_options.setdefault("transformer_options", {})
+        transformer_options["minimax_h3_sigma_shift_video"] = float(h3_shift_video)
+        transformer_options["minimax_h3_sigma_shift_audio"] = float(h3_shift_audio)
         m.add_wrapper_with_key(
             comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
-            "minimax_h3_musubi_target_index_rope",
-            _target_index_rope_wrapper(target_index, target_strength),
+            "minimax_h3_musubi_euler_target_index_rope",
+            _musubi_one_frame_wrapper(target_index, target_strength),
         )
-        sigmas = _musubi_h3_video_sigmas(steps)
-        return _sample_with_sigmas(m, seed, steps, cfg, sampler_name, positive, negative, latent_image, sigmas, disable_noise=disable_noise)
+        sigmas = _musubi_h3_video_sigmas(steps, h3_shift_video)
+        return _sample_with_musubi_euler(m, seed, steps, cfg, positive, negative, latent_image, sigmas, disable_noise=disable_noise)
 
 
 def _select_decoded_frames(images, frame_select, frame_index):
@@ -439,6 +523,26 @@ class MiniMaxH3SingleFrameEdit:
                 "width": ("INT", {"default": 1344, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
                 "height": ("INT", {"default": 768, "min": 32, "max": nodes.MAX_RESOLUTION, "step": 32}),
                 "frame_count": (SINGLE_FRAME_COUNT_OPTIONS, {"default": str(SINGLE_FRAME_COUNT)}),
+                "control_index": ("INT", {
+                    "default": 0,
+                    "min": -3600,
+                    "max": 3600,
+                    "tooltip": "Pixel-frame index for the source control image. Use 0 to match --one_frame control_index=0.",
+                }),
+                "visual_cond_clean": ("FLOAT", {
+                    "default": 0.999,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "tooltip": "MiniMax H3 visual condition clean coefficient. Musubi default is 0.999.",
+                }),
+                "audio_cond_clean": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "tooltip": "MiniMax H3 audio condition clean coefficient. Musubi default is 1.0.",
+                }),
                 "image_mode": (["keyframe", "reference"], {
                     "tooltip": "keyframe anchors the source image at frame 0; reference adds it as <Picture 1> conditioning.",
                 }),
@@ -453,7 +557,7 @@ class MiniMaxH3SingleFrameEdit:
     FUNCTION = "encode"
     CATEGORY = "model/conditioning/minimax"
 
-    def encode(self, clip, vae, prompt, width, height, frame_count=5, image_mode="keyframe", image=None):
+    def encode(self, clip, vae, prompt, width, height, frame_count=5, control_index=0, visual_cond_clean=0.999, audio_cond_clean=1.0, image_mode="keyframe", image=None):
         if isinstance(frame_count, str):
             parsed_frame_count = _parse_frame_count(frame_count, None)
             if parsed_frame_count is None:
@@ -479,17 +583,23 @@ class MiniMaxH3SingleFrameEdit:
                 "latent_w": width // 16,
                 "latent": vae.encode(img),
             }
-            cond = node_helpers.conditioning_set_values(cond, {"minimax_refs": [ref]})
+            cond = node_helpers.conditioning_set_values(cond, {
+                "minimax_refs": [ref],
+                "minimax_visual_cond_noise_aug": float(visual_cond_clean),
+                "minimax_audio_cond_noise_aug": float(audio_cond_clean),
+            })
         else:
             tokens = clip.tokenize(prompt, images=[img])
             cond = clip.encode_from_tokens_scheduled(tokens)
             keyframe = {
-                "resolved_frame_index": 0,
+                "resolved_frame_index": int(control_index),
                 "latent": vae.encode(img),
             }
             cond = node_helpers.conditioning_set_values(cond, {
                 "minimax_keyframes": [keyframe],
                 "minimax_frame_count": frame_count,
+                "minimax_visual_cond_noise_aug": float(visual_cond_clean),
+                "minimax_audio_cond_noise_aug": float(audio_cond_clean),
             })
 
         return (cond, latent)
@@ -547,7 +657,7 @@ NODE_CLASS_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": EmptyMiniMaxH3SingleFrameLatent,
     "MiniMaxH3TemporalRoPEPatch": MiniMaxH3TemporalRoPEPatch,
     "MiniMaxH3TargetIndexRoPEPatch": MiniMaxH3TargetIndexRoPEPatch,
-    "MiniMaxH3MusubiOneFrameSampler": MiniMaxH3MusubiOneFrameSampler,
+    "MiniMaxH3MusubiEulerOneFrameSampler": MiniMaxH3MusubiEulerOneFrameSampler,
     "MiniMaxH3VAEDecodeFrame": MiniMaxH3VAEDecodeFrame,
     "MiniMaxH3SingleFrameEdit": MiniMaxH3SingleFrameEdit,
     "MiniMaxH3StartEndFrameInterpolate": MiniMaxH3StartEndFrameInterpolate,
@@ -557,7 +667,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMiniMaxH3SingleFrameLatent": "Empty MiniMax H3 Single Frame Latent",
     "MiniMaxH3TemporalRoPEPatch": "MiniMax H3 Temporal RoPE Patch",
     "MiniMaxH3TargetIndexRoPEPatch": "MiniMax H3 Target Index RoPE Patch",
-    "MiniMaxH3MusubiOneFrameSampler": "MiniMax H3 Musubi One Frame Sampler",
+    "MiniMaxH3MusubiEulerOneFrameSampler": "MiniMax H3 Musubi One Frame Sampler",
     "MiniMaxH3VAEDecodeFrame": "MiniMax H3 VAE Decode Frame",
     "MiniMaxH3SingleFrameEdit": "MiniMax H3 Single Frame Edit",
     "MiniMaxH3StartEndFrameInterpolate": "MiniMax H3 Start End Frame Interpolate",
